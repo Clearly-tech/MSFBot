@@ -7,9 +7,9 @@
 - Find which alliance member has a specific character with requirements
 
 ## Working on
-- Battle Worlds SpecOps Allaince Character optimiser *whole alliance*
-- Suggested War Defense Teams *Individual*
-- Suggested Crucible Teams *Individual*
-- War Counters
-- Member Progression Statistics
-- Member suggested Character buildup (suggests which characters to build for different game modes) 
+- Battle Worlds SpecOps Allaince Character optimiser /*whole alliance*/
+- Suggested War Defense Teams /*Individual*/
+- Suggested Crucible Teams /*Individual*/
+- War Counters /*Individual*/
+- Member Progression Statistics /*Individual*/
+- Member suggested Character buildup (suggests which characters to build for different game modes) /*Individual*/
