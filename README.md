@@ -3,7 +3,7 @@
 
 ## Features
 - Downloads and store whole alliance data (only to the alliance members who have their profile shared)
-- Find Alliance member
+- Query Alliance member and their characters
 - Find which alliance member has a specific character with requirements
 
 ## Working on
