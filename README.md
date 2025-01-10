@@ -1,5 +1,5 @@
 # MSFBot
- Python Bot for Marvel Strike Force
+ Python Discord Bot for Marvel Strike Force
 
 ## Features
 - Downloads and store whole alliance data (only to the alliance members who have their profile shared)
