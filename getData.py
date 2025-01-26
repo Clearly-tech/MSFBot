@@ -5,7 +5,9 @@ from selenium_setup import SeleniumSetup as selenium_setup
 from bs4 import BeautifulSoup
 from database_setup import db_setup
 import time
-
+'''
+    Testing new way of grabbing data thats scalable
+'''
 class getdata():
 
     #Loading cookies for requests
