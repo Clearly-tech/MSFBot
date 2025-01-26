@@ -1,61 +1,55 @@
-from discord.ext import commands
 import discord
-from discord import app_commands, Interaction, SelectOption
-from discord.ui import Select, Button, View
-from database_setup import db_setup
+from discord.ext import commands
+from discord import SelectOption
+from discord.ui import Select, View
+from database_setup import conn, cursor
 from DiscordLoader import DiscordLoader
-from collections import defaultdict
 import asyncio
 
-class InterHelpers(commands.Cog):
+class InteractionHelpers(commands.Cog):
     def __init__(self, bot):
-        self.bot = bot  # Store bot instance
+        self.bot = bot
 
-    @app_commands.command(name="link_discord", description="Link your current Discord account to a player")
-    async def link_discord(self, interaction: Interaction):
+    @commands.command(name="link_discord")
+    async def link_discord(self, ctx):
         """Starts an interactive, paginated wizard for player selection to link a Discord account."""
-
         # Check if the user's Discord account is already linked
-        db_setup.cursor.execute('SELECT player_name FROM players WHERE player_discord_id = ?', (interaction.user.id,))
-        result = db_setup.cursor.fetchone()
+        cursor.execute('SELECT player_id, player_name FROM players WHERE player_discord_id = ?', (ctx.author.id,))
+        result = cursor.fetchone()
 
         if result:
-            player_name = result[0]
+            player_id, player_name = result
             embed = discord.Embed(
-                title="Already Linked",
-                description="Your Discord account is already linked to a player.",
+                title="Link Successful",
+                description="Your account is already linked.",
                 color=discord.Color.blue()
             )
             embed.add_field(name="Player Name", value=player_name, inline=True)
-            embed.add_field(name="Discord Name", value=interaction.user.name, inline=True)
+            embed.add_field(name="Discord Name", value=ctx.author.name, inline=True)
             embed.set_footer(text="Use /unlink_discord to unlink if needed.")
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await ctx.send(embed=embed)
             return
 
         # Retrieve unlinked players from the database
-        db_setup.cursor.execute("SELECT player_id, player_name FROM players WHERE player_discord_id IS NULL")
-        players = db_setup.cursor.fetchall()
+        cursor.execute("SELECT player_id, player_name FROM players WHERE player_discord_id IS NULL")
+        players = cursor.fetchall()
 
         if not players:
             embed = discord.Embed(
-                title="No Players Available",
-                description="No players are available for linking. Ask your alliance leader to use `/update_alliance`.",
-                color=discord.Color.red()
+                title="No players available for linking.",
+                description="Try again later after the alliance leader uses '/update_alliance'.",
+                color=discord.Color.blue()
             )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await ctx.send(embed=embed)
             return
 
-        # Pagination setup
+        # Pagination variables
         players_per_page = 5
         current_page = 0
         max_page = (len(players) - 1) // players_per_page
 
-        # Helper functions for creating embed and dropdown
         def create_player_embed(page):
-            embed = discord.Embed(
-                title="Link Your Discord Account to a Player",
-                color=discord.Color.blue()
-            )
+            embed = discord.Embed(title="Link Your Discord Account to a Player", color=discord.Color.blue())
             start = page * players_per_page
             for i, (player_id, player_name) in enumerate(players[start:start + players_per_page], start=1):
                 embed.add_field(name=f"{i}. {player_name}", value=f"ID: {player_id}", inline=False)
@@ -67,87 +61,91 @@ class InterHelpers(commands.Cog):
             return [SelectOption(label=player_name, description=f"Player ID: {player_id}", value=str(player_id))
                     for player_id, player_name in players[start:start + players_per_page]]
 
-        # Send the initial embed and dropdown
-        embed = create_player_embed(current_page)
-        view = View()
-
+        selection_msg = await ctx.send(embed=create_player_embed(current_page))
         dropdown = Select(placeholder="Choose a player to link", options=create_dropdown_options(current_page))
-        view.add_item(dropdown)
+        dropdown_view = View()
+        dropdown_view.add_item(dropdown)
+        dropdown_msg = await ctx.send("Select a player from the dropdown below:", view=dropdown_view)
 
-        message = await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        await selection_msg.add_reaction("⬅️")
+        await selection_msg.add_reaction("➡️")
 
-        # Define dropdown callback
-        async def select_callback(inner_interaction: Interaction):
+        async def select_callback(interaction):
             selected_player_id = int(dropdown.values[0])
-            db_setup.cursor.execute(
-                'UPDATE players SET player_discord_id = ? WHERE player_id = ?',
-                (interaction.user.id, selected_player_id)
-            )
-            db_setup.conn.commit()
+            cursor.execute('UPDATE players SET player_discord_id = ? WHERE player_id = ?', (ctx.author.id, selected_player_id))
+            conn.commit()
+            cursor.execute('SELECT player_name FROM players WHERE player_discord_id = ?', (ctx.author.id,))
+            player_name = cursor.fetchone()[0]
 
-            db_setup.cursor.execute('SELECT player_name FROM players WHERE player_id = ?', (selected_player_id,))
-            player_name = db_setup.cursor.fetchone()[0]
-
+            await dropdown_msg.delete()
+            dropdown_view.stop()
             embed = discord.Embed(
                 title="Link Successful",
                 description=f"Your Discord account has been successfully linked to **{player_name}**.",
-                color=discord.Color.green()
+                color=discord.Color.blue()
             )
             embed.add_field(name="Player Name", value=player_name, inline=True)
-            embed.add_field(name="Discord Name", value=interaction.user.name, inline=True)
+            embed.add_field(name="Discord Name", value=ctx.author.name, inline=True)
             embed.set_footer(text="Use /unlink_discord to unlink if needed.")
-            await inner_interaction.response.edit_message(embed=embed, view=None)
+            await ctx.send(embed=embed)
 
         dropdown.callback = select_callback
 
-    @app_commands.command(name="unlink_discord", description="Unlink your Discord account from a player")
-    async def unlink_discord(self, interaction: Interaction):
-        """Unlinks the user's Discord account from a player."""
+        while True:
+            try:
+                reaction, _ = await self.bot.wait_for("reaction_add", timeout=60.0, 
+                    check=lambda r, u: u == ctx.author and str(r.emoji) in ["⬅️", "➡️"])
+                if str(reaction.emoji) == "➡️" and current_page < max_page:
+                    current_page += 1
+                elif str(reaction.emoji) == "⬅️" and current_page > 0:
+                    current_page -= 1
+                await selection_msg.edit(embed=create_player_embed(current_page))
+                dropdown.options = create_dropdown_options(current_page)
+                await dropdown_msg.edit(view=dropdown_view)
+                await selection_msg.remove_reaction(reaction.emoji, ctx.author)
+            except asyncio.TimeoutError:
+                await selection_msg.clear_reactions()
+                break
 
-        # Check if the user's Discord account is linked to any player
-        db_setup.cursor.execute('SELECT player_id, player_name FROM players WHERE player_discord_id = ?', (interaction.user.id,))
-        result = db_setup.cursor.fetchone()
+    @commands.command(name="unlink_discord")
+    async def unlink_discord(self, ctx):
+        cursor.execute('SELECT player_id, player_name FROM players WHERE player_discord_id = ?', (ctx.author.id,))
+        result = cursor.fetchone()
 
         if result:
             player_id, player_name = result
-            db_setup.cursor.execute('UPDATE players SET player_discord_id = NULL WHERE player_id = ?', (player_id,))
-            db_setup.conn.commit()
-
+            cursor.execute('UPDATE players SET player_discord_id = NULL WHERE player_id = ?', (player_id,))
+            conn.commit()
             embed = discord.Embed(
                 title="Unlink Successful",
                 description=f"Your Discord account has been successfully unlinked from **{player_name}**.",
                 color=discord.Color.green()
             )
             embed.add_field(name="Player Name", value=player_name, inline=True)
-            embed.set_footer(text="You can relink with `/link_discord`.")
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            embed.add_field(name="Player ID", value=player_id, inline=True)
+            embed.set_footer(text="Use /link_discord to link again if needed.")
+            await ctx.send(embed=embed)
         else:
             embed = discord.Embed(
                 title="Unlink Failed",
                 description="No linked player account was found for your Discord ID.",
                 color=discord.Color.red()
             )
-            embed.set_footer(text="You can link an account using `/link_discord`.")
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            embed.add_field(name="Note", value="You can link an account using `/link_discord`.", inline=False)
+            await ctx.send(embed=embed)
 
-    @app_commands.command(name="get_self", description="Retrieve your linked player roster")
-    async def get_self(self, interaction: Interaction):
-        """Fetches and displays the roster of the user linked to their Discord account."""
+    @commands.command(name="get_self")
+    async def get_self(self, ctx):
+        loader = DiscordLoader(ctx.channel)
+        await loader.initialize_loader("Checking for user")
 
-        loader = DiscordLoader(interaction.channel)
-        await loader.initialize_loader("Checking user link...")
-
-        db_setup.cursor.execute('SELECT player_id FROM players WHERE player_discord_id = ?', (interaction.user.id,))
-        result = db_setup.cursor.fetchone()
+        cursor.execute('SELECT player_id FROM players WHERE player_discord_id = ?', (ctx.author.id,))
+        result = cursor.fetchone()
 
         if result:
             player_id = result[0]
-            db_setup.cursor.execute('SELECT name, level, power FROM characters WHERE player_id = ?', (player_id,))
-            characters = db_setup.cursor.fetchall()
-
-            if not characters:
-                await loader.finish_loader("No characters found in your roster.")
-                return
+            cursor.execute('SELECT name, level, power FROM characters WHERE player_id = ?', (player_id,))
+            characters = cursor.fetchall()
 
             current_page = 0
             characters_per_page = 5
@@ -160,29 +158,28 @@ class InterHelpers(commands.Cog):
                     embed.add_field(name=character[0], value=f"Level: {character[1]}, Power: {character[2]}")
                 return embed
 
-            message = await interaction.response.send_message(embed=create_embed(current_page), ephemeral=True)
-
-            def check(reaction, user):
-                return user == interaction.user and str(reaction.emoji) in ["◀️", "▶️"]
-
+            message = await ctx.send(embed=create_embed(current_page))
             await message.add_reaction("◀️")
             await message.add_reaction("▶️")
+            await loader.finish_loader("User Found!\nIf this is incorrect, try `/unlink_discord` and `/link_discord` again.")
+
+            def check(reaction, user):
+                return user == ctx.author and str(reaction.emoji) in ["◀️", "▶️"] and reaction.message.id == message.id
 
             while True:
                 try:
-                    reaction, _ = await self.bot.wait_for("reaction_add", timeout=60.0, check=check)
+                    reaction, user = await self.bot.wait_for("reaction_add", timeout=60.0, check=check)
                     if str(reaction.emoji) == "▶️" and current_page < total_pages - 1:
                         current_page += 1
                         await message.edit(embed=create_embed(current_page))
                     elif str(reaction.emoji) == "◀️" and current_page > 0:
                         current_page -= 1
                         await message.edit(embed=create_embed(current_page))
-                    await message.remove_reaction(reaction.emoji, interaction.user)
+                    await message.remove_reaction(reaction, user)
                 except asyncio.TimeoutError:
                     await message.clear_reactions()
                     break
         else:
-            await loader.finish_loader("No linked player found. Use `/link_discord` to link.")
+            await loader.finish_loader("User Not Found.\nYou do not have an account set up. Try `/link_discord`.")
 
-async def setup(bot):
-    await bot.add_cog(InterHelpers(bot))
+

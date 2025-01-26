@@ -1,56 +1,92 @@
 # database_setup.py
 
 import sqlite3
-import json
 from config import DB_NAME
 
-class db_setup():
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
+conn = sqlite3.connect(DB_NAME)
+cursor = conn.cursor()
 
-    def initialize_db():
-        db_setup.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS players (
-                player_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                player_name TEXT NOT NULL,
-                player_discord_id TEXT,
-                player_game_id TEXT
-            )
-        ''')
-        db_setup.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS characters (
-                character_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                player_id INTEGER,
-                name TEXT,
-                level INTEGER,
-                power INTEGER,
-                gear_tier INTEGER,
-                iso_class TEXT,
-                abilities TEXT,
-                stars_red INTEGER,
-                normal_stars INTEGER,
-                diamonds INTEGER,
-                FOREIGN KEY (player_id) REFERENCES players (player_id) ON DELETE CASCADE
-            )
-        ''')
-        db_setup.conn.commit()
+def initialize_db():
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS players (
+            player_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            player_name TEXT NOT NULL,
+            player_discord_id TEXT,
+            player_game_id TEXT,
+            alliance_id INTEGER,
+            FOREIGN KEY (alliance_id) REFERENCES alliance (alliance_id) ON DELETE CASCADE
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS characters (
+            character_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            player_id INTEGER,
+            name TEXT,
+            level INTEGER,
+            power INTEGER,
+            gear_tier INTEGER,
+            iso_class TEXT,
+            abilities TEXT,
+            stars_red INTEGER,
+            normal_stars INTEGER,
+            diamonds INTEGER,
+            FOREIGN KEY (player_id) REFERENCES players (player_id) ON DELETE CASCADE
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS alliance (
+            alliance_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            url TEXT UNIQUE,
+            name TEXT,
+            level INTEGER,
+            power INTEGER,
+            num_players TEXT,
+            zone_id INTEGER,
+            FOREIGN KEY (zone_id) REFERENCES zone_times (zone_id) ON DELETE CASCADE
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS alliance_discord_settings (
+            alliance_discord_settings_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            current_war_enemy TEXT,
+            War_channel INTEGER,
+            bot_controls_channel_alliance INTEGER,
+            bot_controls_channel_members INTEGER,
+            alliance_id TEXT,
 
-    # Helper function to add a character to the database
-    def add_character(player_id, character_data):
-        abilities_json = json.dumps(character_data["Abilities"])
-        db_setup.cursor.execute('''
-            INSERT INTO characters (player_id, name, level, power, gear_tier, iso_class, abilities, stars_red, normal_stars, diamonds)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            player_id,
-            character_data["Name"],
-            character_data["Level"],
-            character_data["Power"],
-            character_data["Gear Tier"],
-            character_data["ISO Class"],
-            abilities_json,
-            character_data["Stars (Red)"],
-            character_data["Normal Stars"],
-            character_data["Diamonds"]
-        ))
-        db_setup.conn.commit()
+            FOREIGN KEY (alliance_id) REFERENCES alliance (alliance_id) ON DELETE CASCADE 
+        )
+    ''')
+    # Add a table for storing scheduled jobs
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS scheduled_jobs (
+            job_id TEXT PRIMARY KEY,
+            zone_id INTEGER,
+            channel_id INTEGER,
+            message TEXT,
+            cron_expression TEXT,  -- Store CronTrigger details
+            timezone TEXT,
+            FOREIGN KEY (zone_id) REFERENCES zone_times (zone_id) ON DELETE CASCADE
+        )
+    ''')
+     # Zone times table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS zone_times (
+            zone_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            zone_name TEXT NOT NULL,
+            time TEXT NOT NULL,
+            days TEXT NOT NULL
+        )
+    ''')
+    conn.commit()
+    # Example zone times
+    cursor.executemany('''
+        INSERT OR IGNORE INTO zone_times (zone_id, zone_name, time, days)
+        VALUES (?, ?, ?, ?)
+    ''', [
+        (1, 'ZONE 1', '8:00 PM', 'Mon, Wed, Fri'),
+        (2, 'ZONE 2', '3:00 AM', 'Mon, Wed, Fri'),
+        (3, 'ZONE 3', '8:00 AM', 'Tues, Thurs, Sat'),
+        (4, 'ZONE 4', '3:00 PM', 'Tues, Thurs, Sat')
+    ])
+    conn.commit()

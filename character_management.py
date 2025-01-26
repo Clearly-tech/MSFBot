@@ -1,101 +1,197 @@
 from discord.ext import commands
-import discord
+from discord import Interaction, SelectOption, app_commands
 from discord.ui import Select, Button, View
-from discord import app_commands, Interaction
-from getData import getdata
+import discord
+import json
+import time
 import asyncio
-from database_setup import db_setup
-from typing import Optional
+from config import Debug_A, Debug_B
+from bs4 import BeautifulSoup
+from database_setup import conn, cursor
+from selenium_setup import driver, cookies
 
-class CharManage(commands.Cog):
+class CharacterManagement(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    async def _execute_query(self, query: str, params: tuple = ()) -> list:
-        """Async query execution function"""
-        cursor = db_setup.conn.cursor()
-        cursor.execute(query, params)
-        return cursor.fetchall()
+    @staticmethod
+    def add_character(player_id, character_data):
+        try:
+            cursor.execute(
+                '''
+                INSERT INTO characters (player_id, name, level, power, gear_tier, iso_class, abilities, stars_red, normal_stars, diamonds)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''',
+                (
+                    player_id,
+                    character_data["Name"],
+                    character_data["Level"],
+                    character_data["Power"],
+                    character_data["Gear Tier"],
+                    character_data["ISO Class"],
+                    json.dumps(character_data["Abilities"]),
+                    character_data["Stars (Red)"],
+                    character_data["Normal Stars"],
+                    character_data["Diamonds"]
+                )
+            )
+            conn.commit()
+        except Exception as e:
+            print(f"Error inserting character: {e}")
+            print(f"Character data: {character_data}")
 
-    async def _execute_commit(self, query: str, params: tuple = ()) -> None:
-        """Executes a commit operation like INSERT/UPDATE"""
-        cursor = db_setup.conn.cursor()
-        cursor.execute(query, params)
-        db_setup.conn.commit()
+    @staticmethod
+    def parse_character_block(char_block):
+        try:
+            # Extract name
+            name_tag = char_block.find('h4')
+            name = name_tag.get_text(strip=True) if name_tag else "Unknown"
 
-    @app_commands.command(name="add_player", description="Add a player to the database. Game Alliance ID required.")
+            # Extract toon stats
+            toon_stats = char_block.find('div', id='toon-stats')
+            level = int(
+                (toon_stats.find('div', style=lambda x: 'font-size: 12px;' in x).get_text(strip=True).replace("LVL", ""))
+                if toon_stats else 0
+            )
+            power = int(
+                (toon_stats.find('div', style=lambda x: 'font-size: 18px;' in x).get_text(strip=True).replace(",", ""))
+                if toon_stats else 0
+            )
+
+            # Extract gear tier
+            gear_tier_ring = char_block.find('div', class_='gear-tier-ring')
+            gear_tier = int(
+                ((gear_tier_ring.find('svg') or {}).get('class', [""])[0][1:] or "0")
+            ) if gear_tier_ring else 0
+
+            # Extract ISO class
+            iso_class = "Unknown"
+            iso_wrapper = char_block.find('div', class_='iso-wrapper')
+            if iso_wrapper:
+                for trait in ['restoration', 'assassin', 'skirmish', 'fortify', 'gambler']:
+                    for tier in ['purple', 'blue', 'green']:
+                        if iso_wrapper.find('div', class_=f'iso-{trait}-{tier}'):
+                            iso_class = f'iso-{trait}-{tier}'
+                            break
+                    if iso_class != "Unknown":
+                        break
+
+            # Extract ability levels
+            ability_levels = []
+            ability_wrapper = char_block.find('div', class_='ability-level-wrapper')
+            if ability_wrapper:
+                ability_levels = [
+                    (div.get('title') or div['class'][-1])
+                    for div in ability_wrapper.find_all('div', class_='ability-level')
+                ]
+
+            # Extract stars and diamonds
+            diamonds_container = char_block.find('div', class_='diamonds-container')
+            diamonds = len(
+                diamonds_container.find_all('div', class_='equipped-diamond diamond-filled')
+            ) if diamonds_container else 0
+            red_star_count = normal_star_count = diamonds if diamonds <= 3 else 7
+
+            return {
+                "Name": name,
+                "Level": level,
+                "Power": power,
+                "Gear Tier": gear_tier,
+                "ISO Class": iso_class,
+                "Abilities": ability_levels,
+                "Stars (Red)": red_star_count,
+                "Normal Stars": normal_star_count,
+                "Diamonds": diamonds
+            }
+        except Exception as e:
+            print(f"Error parsing character block: {char_block}")
+            print(f"Error details: {e}")
+            return None
+
+    @staticmethod
+    def add_player_roster(player_id, player_game_id, is_self):
+        url = f"https://marvelstrikeforce.com/en/{'player/characters' if is_self else f'member/{player_game_id}/characters'}"
+        driver.get(url)
+
+        for cookie in cookies:
+            driver.add_cookie(cookie)
+        driver.refresh()
+        time.sleep(5)
+
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        character_blocks = soup.find_all('li', class_='character')
+
+        for char_block in character_blocks:
+            if Debug_A:
+                print(f"Parsing character block: {char_block}")
+            character_data = CharacterManagement.parse_character_block(char_block)
+            if Debug_A:
+                print(f"Parsed character data: {character_data}")
+            CharacterManagement.add_character(player_id, character_data)
+
+    @app_commands.command(name="add_player", description="Add a player to the database. Requires Game Alliance ID.")
     async def add_player(self, interaction: Interaction, player_name: str, player_game_id: str):
         player_discord_id = str(interaction.user.id)
-        await self._execute_commit(
+        cursor.execute(
             'INSERT INTO players (player_name, player_discord_id, player_game_id) VALUES (?, ?, ?)',
             (player_name, player_discord_id, player_game_id)
         )
-        player_id = db_setup.cursor.lastrowid
+        conn.commit()
+        player_id = cursor.lastrowid
         await interaction.response.send_message(f"Player {player_name} added with Game ID {player_game_id}.")
-        getdata.add_player_roster(player_id, player_game_id, False)
+        CharacterManagement.add_player_roster(player_id, player_game_id, False)
 
-    @app_commands.command(name="get_roster", description="Retrieve player's character roster.")
+    @app_commands.command(name="get_roster", description="Retrieve and paginate a player's roster.")
     async def get_roster(self, interaction: Interaction, player_name: str):
-        """Command to fetch and display the roster of a given player."""
-        player_name = player_name.strip()
-        cursor = db_setup.conn.cursor()
-
-        # Look up the player by name
         cursor.execute('SELECT player_id FROM players WHERE player_name = ?', (player_name,))
         result = cursor.fetchone()
 
-        if result:
-            player_id = result[0]
-            cursor.execute('SELECT name, level, power, iso_class FROM characters WHERE player_id = ?', (player_id,))
-            characters = cursor.fetchall()
-            current_page = 0
-            characters_per_page = 5
-            total_pages = (len(characters) + characters_per_page - 1) // characters_per_page
-
-            def create_embed(page):
-                embed = discord.Embed(
-                    title=f"{player_name}'s Roster - Page {page + 1}/{total_pages}", 
-                    color=discord.Color.blue()
-                )
-                start = page * characters_per_page
-                for character in characters[start:start + characters_per_page]:
-                    embed.add_field(
-                        name=character[0], 
-                        value=f"Level: {character[1]}, Power: {character[2]}, ISO Class: {character[3]}"
-                    )
-                return embed
-
-            message = await interaction.response.send_message(embed=create_embed(current_page), ephemeral=True)
-            await message.add_reaction("◀️")
-            await message.add_reaction("▶️")
-
-            def check(reaction, user):
-                return (
-                    user == interaction.user 
-                    and str(reaction.emoji) in ["◀️", "▶️"] 
-                    and reaction.message.id == message.id
-                )
-
-            while True:
-                try:
-                    reaction, _ = await self.bot.wait_for("reaction_add", timeout=60.0, check=check)
-                    if str(reaction.emoji) == "▶️" and current_page < total_pages - 1:
-                        current_page += 1
-                        await message.edit(embed=create_embed(current_page))
-                    elif str(reaction.emoji) == "◀️" and current_page > 0:
-                        current_page -= 1
-                        await message.edit(embed=create_embed(current_page))
-                    await message.remove_reaction(reaction, interaction.user)
-                except asyncio.TimeoutError:
-                    await message.clear_reactions()
-                    break
-        else:
+        if not result:
             await interaction.response.send_message(f"No roster found for {player_name}.")
+            return
 
-    @app_commands.command(name="find_character", description="Search for characters based on filters.")
+        player_id = result[0]
+        cursor.execute('SELECT name, level, power, iso_class FROM characters WHERE player_id = ?', (player_id,))
+        characters = cursor.fetchall()
+
+        characters_per_page = 5
+        total_pages = (len(characters) + characters_per_page - 1) // characters_per_page
+
+        def create_embed(page):
+            embed = discord.Embed(title=f"{player_name}'s Roster", color=discord.Color.blue())
+            start = page * characters_per_page
+            for char in characters[start:start + characters_per_page]:
+                embed.add_field(name=char[0], value=f"Level: {char[1]}, Power: {char[2]}, ISO Class: {char[3]}")
+            embed.set_footer(text=f"Page {page + 1}/{total_pages}")
+            return embed
+
+        current_page = 0
+        message = await interaction.response.send_message(embed=create_embed(current_page))
+        await message.add_reaction("◀️")
+        await message.add_reaction("▶️")
+
+        def check(reaction, user):
+            return user == interaction.user and str(reaction.emoji) in ["◀️", "▶️"]
+
+        while True:
+            try:
+                reaction, user = await self.bot.wait_for("reaction_add", timeout=60.0, check=check)
+                if str(reaction.emoji) == "▶️" and current_page < total_pages - 1:
+                    current_page += 1
+                    await message.edit(embed=create_embed(current_page))
+                elif str(reaction.emoji) == "◀️" and current_page > 0:
+                    current_page -= 1
+                    await message.edit(embed=create_embed(current_page))
+                await message.remove_reaction(reaction, user)
+            except asyncio.TimeoutError:
+                await message.clear_reactions()
+                break
+
+    @app_commands.command(name="find_character", description="Find and select a character.")
     async def find_character(self, interaction: Interaction):
-        bot = self.bot
-        cursor = db_setup.conn.cursor()
+        """Starts an interactive, paginated wizard for character selection with skip options."""
+        bot = interaction.client  # Access the bot instance via the Interaction object
+        # Retrieve and sort characters from the database
         cursor.execute("SELECT DISTINCT name FROM characters")
         characters = sorted([row[0] for row in cursor.fetchall()])
 
@@ -113,49 +209,32 @@ class CharManage(commands.Cog):
 
         def create_dropdown_options(page):
             start = page * characters_per_page
-            return [discord.SelectOption(label=char, value=char) for char in characters[start:start + characters_per_page]]
+            return [SelectOption(label=char, value=char) for char in characters[start:start + characters_per_page]]
 
-        selection_msg = await interaction.response.send_message(embed=create_character_embed(current_page), ephemeral=True)
+        selection_msg = await interaction.response.send_message(embed=create_character_embed(current_page))
         dropdown = Select(placeholder="Choose a character", options=create_dropdown_options(current_page))
 
         skip_button = Button(label="Skip Character Selection", style=discord.ButtonStyle.secondary)
 
+        # Initialize the view and add components
         dropdown_view = View()
         dropdown_view.add_item(dropdown)
         dropdown_view.add_item(skip_button)
-        dropdown_msg = await interaction.followup.send("Select a character or skip:", view=dropdown_view, ephemeral=True)
-
-        await selection_msg.add_reaction("⬅️")
-        await selection_msg.add_reaction("➡️")
+        dropdown_msg = await interaction.followup.send("Select a character from the dropdown below, or skip:", view=dropdown_view)
 
         async def select_callback(interaction):
             selected_character = dropdown.values[0]
             await dropdown_msg.delete()
-            dropdown_view.stop()
+            dropdown_view.stop()  # Stop the view after selection
             await self.run_filter_prompt(interaction, selected_character)
 
         async def skip_callback(interaction):
             await dropdown_msg.delete()
-            dropdown_view.stop()
+            dropdown_view.stop()  # Stop the view if skipped
             await self.run_filter_prompt(interaction, None)  # Pass None to skip character filter
 
         dropdown.callback = select_callback
         skip_button.callback = skip_callback
+    # Additional methods and commands should be refactored similarly for clarity and maintainability.
 
-        while True:
-            try:
-                reaction, _ = await bot.wait_for("reaction_add", timeout=60.0, check=lambda r, u: u == interaction.user and str(r.emoji) in ["⬅️", "➡️"])
-                if str(reaction.emoji) == "➡️" and current_page < max_page:
-                    current_page += 1
-                elif str(reaction.emoji) == "⬅️" and current_page > 0:
-                    current_page -= 1
-                await selection_msg.edit(embed=create_character_embed(current_page))
-                dropdown.options = create_dropdown_options(current_page)
-                await dropdown_msg.edit(view=dropdown_view)
-                await selection_msg.remove_reaction(reaction.emoji, interaction.user)
-            except asyncio.TimeoutError:
-                await selection_msg.clear_reactions()
-                break
 
-async def setup(bot):
-    await bot.add_cog(CharManage(bot))
