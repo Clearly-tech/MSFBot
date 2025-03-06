@@ -75,7 +75,7 @@ async def setup_bot():
 async def main():
     async with bot:
         try:
-            logger.info("Bot Tree Synced")
+            await setup_bot()
             await bot.start(BOT_TOKEN)
         except Exception as e:
             logger.critical(f"Bot failed to start: {e}")
