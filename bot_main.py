@@ -48,6 +48,7 @@ async def on_ready():
     global scheduler_initialized
     logger.info(f"Logged in as {bot.user} ({bot.user.id})")
     await bot.tree.sync()
+    logger.info("Bot tree synced!")
     if not scheduler_initialized:
         setup_scheduler()
         scheduler_initialized = True
