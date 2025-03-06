@@ -1,0 +1,11 @@
+
+config.py
+marvel_characters.db
+msf_cookies.pkl
+__pycache__/config.cpython-312.pyc
+__pycache__/alliance_management.cpython-312.pyc
+__pycache__/character_management.cpython-312.pyc
+__pycache__/database_setup.cpython-312.pyc
+__pycache__/DiscordLoader.cpython-312.pyc
+__pycache__/interaction_helpers.cpython-312.pyc
+/__pycache__

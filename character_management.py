@@ -235,6 +235,3 @@ class CharacterManagement(commands.Cog):
 
         dropdown.callback = select_callback
         skip_button.callback = skip_callback
-    # Additional methods and commands should be refactored similarly for clarity and maintainability.
-
-

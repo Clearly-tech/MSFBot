@@ -7,6 +7,8 @@ from database_setup import initialize_db
 from character_management import CharacterManagement
 from alliance_management import AllianceManagement
 from interaction_helpers import InteractionHelpers
+from gamemodes import Gamemodes
+from war_management import WarManagement
 from war_schedule import WarScheduler, setup_scheduler
 
 # Logging setup
@@ -45,6 +47,7 @@ except Exception as e:
 async def on_ready():
     global scheduler_initialized
     logger.info(f"Logged in as {bot.user} ({bot.user.id})")
+    await bot.tree.sync()
     if not scheduler_initialized:
         setup_scheduler()
         scheduler_initialized = True
@@ -58,6 +61,8 @@ async def setup_bot():
         ("AllianceManagement", AllianceManagement),
         ("InteractionHelpers", InteractionHelpers),
         ("WarScheduler", WarScheduler),
+        ("Gamemodes", Gamemodes),
+        ("WarManagement", WarManagement)
     ]
 
     for cog_name, cog_class in cogs:
@@ -70,7 +75,7 @@ async def setup_bot():
 async def main():
     async with bot:
         try:
-            await setup_bot()
+            logger.info("Bot Tree Synced")
             await bot.start(BOT_TOKEN)
         except Exception as e:
             logger.critical(f"Bot failed to start: {e}")

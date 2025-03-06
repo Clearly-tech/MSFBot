@@ -16,7 +16,7 @@ def initialize_db():
             alliance_id INTEGER,
             FOREIGN KEY (alliance_id) REFERENCES alliance (alliance_id) ON DELETE CASCADE
         )
-    ''')
+    ''')# add total power, add strongest team, participation rating(war), participation rating(Raids)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS characters (
             character_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -30,6 +30,7 @@ def initialize_db():
             stars_red INTEGER,
             normal_stars INTEGER,
             diamonds INTEGER,
+
             FOREIGN KEY (player_id) REFERENCES players (player_id) ON DELETE CASCADE
         )
     ''')
@@ -42,19 +43,42 @@ def initialize_db():
             power INTEGER,
             num_players TEXT,
             zone_id INTEGER,
+            
             FOREIGN KEY (zone_id) REFERENCES zone_times (zone_id) ON DELETE CASCADE
         )
-    ''')
+    ''')#add War league, war rank, Raid rank, Average power
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS alliance_discord_settings (
             alliance_discord_settings_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            current_war_enemy TEXT,
             War_channel INTEGER,
             bot_controls_channel_alliance INTEGER,
             bot_controls_channel_members INTEGER,
             alliance_id TEXT,
 
             FOREIGN KEY (alliance_id) REFERENCES alliance (alliance_id) ON DELETE CASCADE 
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS alliance_war_enemy (
+            alliance_war_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            alliance_name TEXT,
+            alliance_url TEXT,
+            alliance_description TEXT,
+            alliance_level INTEGER,
+            alliance_total_power INTEGER,
+            alliance_average_power INTEGER,
+            alliance_total_players INTEGER
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS member_war_enemy (
+            player_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            player_name TEXT NOT NULL,
+            player_discord_id TEXT,
+            player_game_id TEXT,
+            alliance_war_id INTEGER,
+            
+            FOREIGN KEY (alliance_war_id) REFERENCES alliance_war_enemy (alliance_war_idance_id) ON DELETE CASCADE
         )
     ''')
     # Add a table for storing scheduled jobs

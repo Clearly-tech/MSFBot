@@ -3,12 +3,14 @@ from typing import List, Dict
 from discord.ext import commands
 import discord
 from discord import app_commands, Interaction
-from database_setup import db_setup
+from database_setup import conn, cursor
 
 class Gamemodes(commands.Cog):
     def __init__(self, bot):
         self.bot = bot  # Store bot instance
-        
+
+
+    #BattleWorlds *Been Changed so will need to rework this*    
     @app_commands.command(name="battleworld", description="Battleworld Test")
     async def battleworld(self, interaction: Interaction):
         # Define each room's requirements and required characters
@@ -25,13 +27,13 @@ class Gamemodes(commands.Cog):
 
         # Helper function to fetch player and character data
         def fetch_player_characters():
-            db_setup.cursor.execute('''
+            conn.cursor.execute('''
                 SELECT p.player_id, p.player_name, c.character_id, c.name, c.level, c.power, c.gear_tier, 
                     c.stars_red, c.normal_stars, c.diamonds 
                 FROM players p
                 JOIN characters c ON p.player_id = c.player_id
             ''')
-            data = db_setup.cursor.fetchall()
+            data = conn.cursor.fetchall()
             players = defaultdict(list)
             for row in data:
                 player_id, player_name, character_id, name, level, power, gear_tier, stars_red, normal_stars, diamonds = row
@@ -119,6 +121,4 @@ class Gamemodes(commands.Cog):
             await interaction.response.send_message("\n".join(message_lines))
         else:
             await interaction.response.send_message("No players meet the requirements for the Battleworld rooms.")
-
-async def setup(bot):
-    await bot.add_cog(Gamemodes(bot))
+    
