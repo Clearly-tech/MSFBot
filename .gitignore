@@ -9,3 +9,4 @@ __pycache__/database_setup.cpython-312.pyc
 __pycache__/DiscordLoader.cpython-312.pyc
 __pycache__/interaction_helpers.cpython-312.pyc
 /__pycache__
+config.py
